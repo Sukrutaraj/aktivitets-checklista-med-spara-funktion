@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Checklist Builder</title>
+
+<style>
+body{font-family:Arial,Helvetica,sans-serif;background:#f3f5f7;margin:20px}
+h1{font-size:26px}
+
+.section{
+background:#fff;
+border-radius:12px;
+padding:16px;
+margin-bottom:16px
+}
+
+.step{
+border:1px dashed #ccc;
+border-radius:10px;
+padding:12px;
+margin-top:12px
+}
+
+label{
+font-weight:bold;
+display:block;
+margin-top:8px
+}
+
+input{
+width:100%;
+padding:6px;
+margin-top:4px
+}
+
+button{
+margin-top:8px;
+padding:8px 12px;
+font-size:14px;
+border:none;
+border-radius:8px;
+background:#0b6fb1;
+color:#fff;
+cursor:pointer
+}
+
+button.secondary{background:#4caf50}
+button.add{background:#673ab7}
+button.delete{background:#c62828}
+button.save{background:#ff9800}
+button.clear{background:#555}
+
+.status{
+margin-top:6px;
+font-size:14px;
+color:#333
+}
+
+.output{
+background:#eef2f6;
+border-radius:10px;
+padding:12px;
+margin-top:16px
+}
+
+img.preview{
+width:120px;
+height:120px;
+object-fit:cover;
+border-radius:8px;
+margin-top:6px;
+display:block
+}
+
+.playbtn{background:#333;margin-top:6px}
+
+</style>
+</head>
+
+<body>
+
+<h1>Checklist Builder</h1>
+
+<div class="section">
+
+<label>Titel på checklistan</label>
+<input id="title" value="Min checklista" oninput="saveDraft()">
+
+<div id="steps"></div>
+
+<button class="add" onclick="addStep()">➕ Lägg till nästa steg</button>
+<button onclick="generateChecklist()">Generera checklista</button>
+<button class="save" onclick="saveDraft()">💾 Spara utkast</button>
+<button class="clear" onclick="clearDraft()">🗑 Rensa sparat</button>
+
+</div>
+
+<div class="section output" id="result" style="display:none"></div>
+
+<script>
+
+let stream=null
+let stepsData=[]
+let currentRecorder=null
+let currentChunks=[]
+let currentStepIndex=null
+
+async function initMic(){
+if(!stream) stream=await navigator.mediaDevices.getUserMedia({audio:true})
+}
+
+function renderSteps(){
+
+const stepsDiv=document.getElementById('steps')
+stepsDiv.innerHTML=''
+
+stepsData.forEach((step,index)=>{
+
+const div=document.createElement('div')
+div.className='step'
+
+div.innerHTML=`
+
+<label>Steg ${index+1}</label>
+
+<input value="${step.text||''}" placeholder="Beskriv steget"
+oninput="stepsData[${index}].text=this.value;saveDraft()">
+
+<label>Bild</label>
+<input type="file" accept="image/*" onchange="loadImage(event,${index})">
+
+<img class="preview" id="img${index}"
+style="display:${step.img?'block':'none'}"
+src="${step.img||''}">
+
+<label>Ljud</label>
+
+<button onclick="startRec(${index})">Spela in</button>
+
+<button class="secondary" onclick="stopRec()">Stoppa</button>
+
+<button class="playbtn" onclick="playRec(${index})">Lyssna</button>
+
+<button class="delete" onclick="removeStep(${index})">Ta bort steg</button>
+
+<div class="status" id="status${index}">
+${step.audio?'Inspelning klar':'Ingen inspelning'}
+</div>
+`
+
+stepsDiv.appendChild(div)
+
+})
+
+}
+
+function addStep(data=null){
+
+stepsData.push(data || {})
+
+renderSteps()
+
+saveDraft()
+
+}
+
+function removeStep(index){
+
+if(!confirm("Ta bort detta steg?")) return
+
+stepsData.splice(index,1)
+
+renderSteps()
+
+saveDraft()
+
+}
+
+function loadImage(e,index){
+
+const file=e.target.files[0]
+if(!file) return
+
+const r=new FileReader()
+
+r.onload=()=>{
+stepsData[index].img=r.result
+renderSteps()
+saveDraft()
+}
+
+r.readAsDataURL(file)
+
+}
+
+async function startRec(index){
+
+await initMic()
+
+currentStepIndex=index
+currentChunks=[]
+
+currentRecorder=new MediaRecorder(stream)
+
+currentRecorder.ondataavailable=e=>currentChunks.push(e.data)
+
+currentRecorder.onstop=saveRec
+
+currentRecorder.start()
+
+document.getElementById('status'+index).innerText='Spelar in...'
+
+}
+
+function stopRec(){
+
+if(currentRecorder && currentRecorder.state==='recording')
+currentRecorder.stop()
+
+}
+
+function saveRec(){
+
+const blob=new Blob(currentChunks,{type:'audio/webm'})
+
+const r=new FileReader()
+
+r.onload=()=>{
+
+stepsData[currentStepIndex].audio=r.result
+
+renderSteps()
+
+saveDraft()
+
+}
+
+r.readAsDataURL(blob)
+
+}
+
+function playRec(index){
+
+if(stepsData[index].audio)
+new Audio(stepsData[index].audio).play()
+
+}
+
+function generateChecklist(){
+
+const title=document.getElementById('title').value
+
+let html=`<h2>${title}</h2>`
+
+stepsData.forEach((step,i)=>{
+
+if(!step.text) return
+
+const img=step.img?`<img src="${step.img}" style="width:160px;border-radius:8px"><br>`:''
+
+const sound=step.audio?`<button onclick="new Audio('${step.audio}').play()">Lyssna</button>`:''
+
+html+=`<div style="margin-bottom:12px">
+<strong>${i+1}. ${step.text}</strong><br>
+${img}
+${sound}
+</div>`
+
+})
+
+document.getElementById('result').innerHTML=html
+
+document.getElementById('result').style.display='block'
+
+}
+
+function saveDraft(){
+
+const draft={
+title:document.getElementById('title').value,
+steps:stepsData
+}
+
+localStorage.setItem("checklistDraft",JSON.stringify(draft))
+
+}
+
+function loadDraft(){
+
+const saved=localStorage.getItem("checklistDraft")
+
+if(!saved){
+
+stepsData=[{}]
+renderSteps()
+return
+
+}
+
+const draft=JSON.parse(saved)
+
+document.getElementById('title').value=draft.title
+
+stepsData=draft.steps || [{}]
+
+renderSteps()
+
+}
+
+function clearDraft(){
+
+if(confirm("Rensa sparad checklista?")){
+
+localStorage.removeItem("checklistDraft")
+
+location.reload()
+
+}
+
+}
+
+loadDraft()
+
+</script>
+
+</body>
+</html>
